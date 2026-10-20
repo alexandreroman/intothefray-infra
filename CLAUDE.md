@@ -1,10 +1,8 @@
 # Into The Fray - Infrastructure
 
-Deploys the backend of Into The Fray (Go server + Redis, behind Caddy) to an
-OVH VPS at https://api.intothefray.xyz. The app lives in
-https://github.com/alexandreroman/intothefray. See [README.md](README.md) for
-the files, the deploy workflow and the VPS, Cloudflare, Tailscale and GitHub
-setup.
+Deploys the backend of [Into The Fray](https://github.com/alexandreroman/intothefray)
+(Go server + Redis, behind Caddy) to an OVH VPS at https://api.intothefray.xyz.
+See [README.md](README.md) for the files, the deploy workflow and the VPS, Cloudflare, Tailscale and GitHub setup.
 
 ## Build & run
 
