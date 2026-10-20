@@ -25,3 +25,4 @@
 - [License](references/project_license.md) — Apache-2.0, Alexandre Roman
 - [Makefile scope](references/project_makefile_scope.md) — checks only
 - [No local paths](references/feedback_no_local_paths.md) — URLs only
+- [Open HTTPS port](references/project_open_https_port.md) — no IP filter

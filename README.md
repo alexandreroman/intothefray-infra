@@ -147,8 +147,8 @@ hand while setting up the firewall.
 
   Check that `ssh deploy@<vps>.<tailnet>.ts.net` works over Tailscale
   before closing port 22 below.
-- [ ] Set up ufw: nothing public but HTTPS from Cloudflare, SSH on the
-  tailnet only:
+- [ ] Set up ufw: SSH on the tailnet only. Docker opens Caddy's port 443
+  itself: no ufw rule is needed for it.
 
   ```bash
   sudo ufw default deny incoming
@@ -157,33 +157,6 @@ hand while setting up the firewall.
   sudo ufw enable
   ```
 
-- [ ] Restrict port 443 to Cloudflare. Docker publishes container ports
-  through its own iptables rules, which run before ufw's: a plain
-  `ufw allow 443` rule neither opens nor closes Caddy's port. The filter
-  goes into the `DOCKER-USER` chain, which ufw loads from
-  `/etc/ufw/after.rules` (and reloads with `ufw reload`). Generate it from
-  Cloudflare's published ranges:
-
-  ```bash
-  iface=$(ip route show default | awk '{print $5; exit}')
-  {
-    echo '*filter'
-    echo ':DOCKER-USER - [0:0]'
-    echo '-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN'
-    for range in $(curl -fsS https://www.cloudflare.com/ips-v4); do
-      echo "-A DOCKER-USER -i $iface -s $range -p tcp" \
-        "-m conntrack --ctorigdstport 443 -j RETURN"
-    done
-    echo "-A DOCKER-USER -i $iface -j DROP"
-    echo 'COMMIT'
-  } | sudo tee -a /etc/ufw/after.rules
-  sudo ufw reload
-  ```
-
-  Traffic the containers start (image pulls, marvelcdb) and their replies
-  are not affected. Re-run the block (after removing the old one) when
-  Cloudflare changes its ranges. Check from outside the tailnet that
-  `curl -k https://<vps public IP>` times out.
 - [ ] Create the application directory and the certificate directory:
 
   ```bash
