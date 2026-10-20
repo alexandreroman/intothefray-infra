@@ -75,6 +75,46 @@ goes back to it. This rolls back the backend only; the frontend is published
 by the app repo. The tag that ran before the current one is in
 `/opt/intothefray/.env` as `APP_PREVIOUS_TAG`.
 
+## Reproducing the workflow
+
+The workflow connects as `deploy` with the key created during the
+[VPS preparation](#one-time-vps-preparation). With that key and the same SSH
+options, any machine on the tailnet runs the same steps. Add to
+`~/.ssh/config`:
+
+```text
+Host itf-vps
+  HostName <vps>.<tailnet>.ts.net
+  User deploy
+  IdentityFile ~/.ssh/intothefray-deploy
+  IdentitiesOnly yes
+```
+
+`IdentitiesOnly` stops the SSH agent from offering its other keys first,
+which can end in "Too many authentication failures". On the first
+connection, check that the fingerprint SSH shows matches
+`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VPS.
+
+The key is `restrict`ed: it runs commands but opens no terminal, so always
+pass a command. Test the access the workflow needs:
+
+```bash
+ssh itf-vps true && echo OK                   # SSH as deploy
+ssh itf-vps docker compose -f /opt/intothefray/compose.yaml ps  # Docker
+```
+
+Run the deploy steps by hand, from the root of this repository. This
+really deploys:
+
+```bash
+dir=/opt/intothefray/incoming
+ssh itf-vps mkdir -p "$dir"
+scp -q compose.yaml Caddyfile scripts/deploy.sh "itf-vps:$dir/"
+ssh itf-vps sh "$dir/deploy.sh" deploy <sha>  # no SHA: redeploy the tag
+curl -sS --fail -o /dev/null https://api.intothefray.xyz/healthz && echo OK
+ssh itf-vps sh "$dir/deploy.sh" rollback      # only if a step failed
+```
+
 ## Reading logs on the VPS
 
 Connect over Tailscale, then:
@@ -119,15 +159,18 @@ hand while setting up the firewall.
   `VPS_SSH_KEY` secret; the public key goes into `deploy`'s
   `authorized_keys` on the VPS.
 
-  1. On your machine, in a directory outside this repository, create the
-     key pair. It has no passphrase, since the workflow cannot type one:
+  1. On your machine, create the key pair. It has no passphrase, since the
+     workflow cannot type one:
 
      ```bash
-     ssh-keygen -t ed25519 -N "" -C intothefray-deploy -f intothefray-deploy
+     ssh-keygen -t ed25519 -N "" -C intothefray-deploy \
+       -f ~/.ssh/intothefray-deploy
      ```
 
-     This writes the private key `intothefray-deploy` and the public key
-     `intothefray-deploy.pub`.
+     This writes the private key `~/.ssh/intothefray-deploy` and the public
+     key `~/.ssh/intothefray-deploy.pub`. Keep both: the private key lets
+     you [reproduce the workflow](#reproducing-the-workflow) from your
+     machine.
 
   2. Authorize the public key for `deploy`. That user has no password, so go
      through your own account and `sudo`. The `restrict` prefix denies
@@ -135,7 +178,7 @@ hand while setting up the firewall.
      the workflow runs:
 
      ```bash
-     printf 'restrict %s\n' "$(cat intothefray-deploy.pub)" |
+     printf 'restrict %s\n' "$(cat ~/.ssh/intothefray-deploy.pub)" |
        ssh <your user>@<vps public IP> \
          'sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh &&
           sudo tee /home/deploy/.ssh/authorized_keys >/dev/null &&
@@ -143,14 +186,12 @@ hand while setting up the firewall.
           sudo chmod 600 /home/deploy/.ssh/authorized_keys'
      ```
 
-  3. Check the key, store the private key as a secret, then delete both
-     files (or keep the private key in a password manager):
+  3. Check the key, then store the private key as a secret:
 
      ```bash
-     ssh -i intothefray-deploy deploy@<vps public IP> true && echo OK
+     ssh -i ~/.ssh/intothefray-deploy deploy@<vps public IP> true && echo OK
      gh secret set VPS_SSH_KEY -R alexandreroman/intothefray-infra \
-       <intothefray-deploy
-     rm intothefray-deploy intothefray-deploy.pub
+       <~/.ssh/intothefray-deploy
      ```
 
 - [ ] Add a 2 GB swap file:
@@ -185,14 +226,19 @@ hand while setting up the firewall.
      console lists it with the `tag:vps` tag and "Expiry disabled".
   3. Note the VPS's MagicDNS name, `<vps>.<tailnet>.ts.net`: it is shown in
      the admin console (Machines) and is the `VPS_HOST` secret.
-  4. On your machine, install Tailscale (<https://tailscale.com/download>)
-     and sign in to the same tailnet. Then check that SSH works over the
-     tailnet before closing port 22 below:
+  4. On your machine, install Tailscale (<https://tailscale.com/download>;
+     on macOS, turn on its command-line tool in the app's settings) and sign
+     in to the same tailnet. Then check, before closing port 22 below, that
+     the VPS answers over the tailnet and that the workflow's SSH access
+     works through it. This is the plain `ssh` command, not `tailscale ssh`:
 
      ```bash
+     tailscale status                    # the VPS is listed, as tagged-devices
      tailscale ping <vps>.<tailnet>.ts.net
-     ssh <your user>@<vps>.<tailnet>.ts.net
+     ssh -i ~/.ssh/intothefray-deploy deploy@<vps>.<tailnet>.ts.net true \
+       && echo OK
      ```
+
 - [ ] Set up ufw: SSH on the tailnet only. Docker opens Caddy's port 443
   itself: no ufw rule is needed for it.
 
