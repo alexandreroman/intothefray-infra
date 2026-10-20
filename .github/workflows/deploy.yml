@@ -71,7 +71,37 @@ jobs:
           fi
           echo "sha=$sha" >>"$GITHUB_OUTPUT"
 
+      # Until the VPS is set up, its secrets are missing: the deploy is then
+      # skipped with a warning instead of failing every run. Only the names
+      # of the missing secrets are printed, never a value.
+      - name: Check the deploy secrets
+        id: secrets
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          missing=()
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET VPS_HOST VPS_USER VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS; do
+            # ${!name} is the value of the variable called $name
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning::Missing secrets: ${missing[*]}." \
+              "The deploy is skipped until the VPS is set up (see README)."
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >>"$GITHUB_OUTPUT"
+          fi
+
       - name: Join the tailnet
+        if: steps.secrets.outputs.ready == 'true'
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -80,6 +110,7 @@ jobs:
           ping: ${{ secrets.VPS_HOST }}
 
       - name: Set up SSH
+        if: steps.secrets.outputs.ready == 'true'
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -103,12 +134,14 @@ jobs:
           EOF
 
       - name: Upload the stack files
+        if: steps.secrets.outputs.ready == 'true'
         run: |
           ssh vps mkdir -p /opt/intothefray/incoming
           scp -q compose.yaml Caddyfile scripts/deploy.sh vps:/opt/intothefray/incoming/
 
       - name: Deploy
         id: deploy
+        if: steps.secrets.outputs.ready == 'true'
         env:
           SHA: ${{ steps.target.outputs.sha }}
         # The SHA is expanded on the runner on purpose: it was validated above.
@@ -120,6 +153,7 @@ jobs:
       # moment Caddy takes to start listening.
       - name: Check the public health endpoint
         id: health
+        if: steps.secrets.outputs.ready == 'true'
         run: |
           curl -sS --fail --output /dev/null --max-time 10 \
             --retry 10 --retry-delay 6 --retry-all-errors \

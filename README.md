@@ -63,6 +63,10 @@ waits until every service is healthy. The workflow then checks
 runs `deploy.sh rollback`, which restores the previous files and tag, and the
 job fails.
 
+Until every secret listed in [GitHub](#github) is set, the workflow still
+validates the SHA, then warns which secrets are missing and skips the deploy:
+the job ends green.
+
 ## Rolling back
 
 Run the `Deploy` workflow by hand (Actions, Deploy, Run workflow) with the
