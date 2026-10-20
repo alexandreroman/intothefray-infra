@@ -256,17 +256,50 @@ hand while setting up the firewall.
   sudo chown -R deploy:deploy /opt/intothefray
   ```
 
-- [ ] Create a Cloudflare Origin CA certificate (SSL/TLS, Origin Server,
-  Create certificate) for `api.intothefray.xyz`, and save it as
-  `/opt/intothefray/certs/origin.pem` and the private key as
-  `/opt/intothefray/certs/origin-key.pem`. Caddy runs as `nobody`
-  (65534), so give the key to group `nogroup` (65534), readable by it only:
+- [ ] Install a Cloudflare Origin CA certificate. Caddy presents it to
+  Cloudflare, which requires a valid one in Full (strict) mode (error 526
+  otherwise). Only Cloudflare trusts it, which is enough since browsers
+  never reach the VPS directly, and it lasts up to 15 years.
 
-  ```bash
-  sudo chown deploy:nogroup /opt/intothefray/certs/origin-key.pem
-  sudo chmod 640 /opt/intothefray/certs/origin-key.pem
-  chmod 644 /opt/intothefray/certs/origin.pem
-  ```
+  1. In the Cloudflare dashboard, open `intothefray.xyz`, then SSL/TLS,
+     Origin Server, Create Certificate, and choose:
+     - Generate private key and CSR with Cloudflare, key type ECC;
+     - hostnames: only `api.intothefray.xyz` (remove the default
+       `intothefray.xyz` and `*.intothefray.xyz`);
+     - certificate validity: 15 years.
+  2. Cloudflare shows the origin certificate and its private key, in PEM
+     format. Leave the page open: the private key is shown only once.
+  3. On the VPS, through your own account, paste each one into its file
+     (end each paste with Ctrl-D). The key is created unreadable by others
+     from the start:
+
+     ```bash
+     cd /opt/intothefray/certs
+     sudo -u deploy tee origin.pem >/dev/null
+     sudo -u deploy sh -c 'umask 077; cat >origin-key.pem'
+     ```
+
+  4. Caddy runs as `nobody` (65534): give the key to group `nogroup`
+     (65534), readable by it only, and the certificate to everyone:
+
+     ```bash
+     sudo chown deploy:nogroup origin-key.pem
+     sudo chmod 640 origin-key.pem
+     sudo chmod 644 origin.pem
+     ```
+
+  5. Check the name and the expiry date, and that the key matches the
+     certificate (both hashes must be equal):
+
+     ```bash
+     openssl x509 -in origin.pem -noout -subject -enddate
+     openssl x509 -in origin.pem -noout -pubkey | sha256sum
+     sudo openssl pkey -in origin-key.pem -pubout | sha256sum
+     ```
+
+  The key never goes into git, nor anywhere else than this file. Set a
+  reminder before the expiry date. If the key leaks, revoke the certificate
+  in SSL/TLS, Origin Server, and create a new one.
 
 - [ ] Record the SSH host key for the workflow, from a machine on the
   tailnet, and check its fingerprint against
