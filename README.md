@@ -429,29 +429,39 @@ once, in the Tailscale admin console.
    above, so that CI runs reach SSH on the VPS only and the narrower grants
    are the ones that apply.
 
-2. **OAuth client.** Open Settings, Trust credentials, and create an OAuth
-   client with the Auth Keys scope in write and the tag `tag:ci`. Copy its
-   ID and secret (the secret is shown only once) into the repository
-   secrets:
+2. **OAuth client.** The workflow joins the tailnet with an OAuth client
+   rather than an auth key: an auth key expires after 90 days at most,
+   while an OAuth client does not. On every run,
+   `tailscale/github-action` uses the client to create an auth key for an
+   ephemeral machine tagged `tag:ci`, which Tailscale removes once the job
+   ends.
 
-   ```bash
-   gh secret set TS_OAUTH_CLIENT_ID -R alexandreroman/intothefray-infra
-   gh secret set TS_OAUTH_SECRET -R alexandreroman/intothefray-infra
-   ```
+   1. Open Settings, Trust credentials, and add a credential of type OAuth,
+      described for example as `intothefray-infra deploy`.
+   2. Grant it a single scope, Keys, Auth Keys, in **write**: that is all
+      the action needs. Writing auth keys asks for their tags: add
+      `tag:ci`, the only tag the client may use (an OAuth client belongs to
+      no user, so at least one tag is required). The tag must already be in
+      `tagOwners` (step 1).
+   3. Generate the client. Tailscale shows its client ID and its secret
+      (`tskey-client-...`); the secret is shown only once.
+   4. Store both as repository secrets. Each command prompts for the value,
+      which keeps it out of the shell history:
 
-   Each prompts for the value. On every run, `tailscale/github-action` uses
-   the client to create an auth key for an ephemeral machine
-   tagged `tag:ci`; Tailscale removes that machine once the job ends. Unlike
-   an auth key, which expires after 90 days at most, the OAuth client does
-   not expire.
+      ```bash
+      gh secret set TS_OAUTH_CLIENT_ID -R alexandreroman/intothefray-infra
+      gh secret set TS_OAUTH_SECRET -R alexandreroman/intothefray-infra
+      ```
+
+   The first deploy checks it: the "Join the tailnet" step succeeds and the
+   Machines page lists an ephemeral machine tagged `tag:ci` until the job
+   ends. If the secret leaks, delete the client in Trust credentials,
+   create a new one and replace both secrets.
 
 3. **MagicDNS.** Check on the DNS page that MagicDNS is on (the default on
    recent tailnets). The page also shows the tailnet name: the VPS's
    MagicDNS name, `<vps>.<tailnet>.ts.net`, is the `VPS_HOST` secret, and
    the workflow pings it right after joining.
-
-During a deploy, the Machines page lists the runner as an ephemeral
-machine tagged `tag:ci`; it disappears after the job.
 
 ## GitHub
 
