@@ -165,16 +165,34 @@ hand while setting up the firewall.
   sudo sysctl --system
   ```
 
-- [ ] Install Tailscale (<https://tailscale.com/download/linux>), join the
-  tailnet with the server tag (see [Tailscale](#tailscale)), and disable key
-  expiry for this machine in the admin console:
+- [ ] Put the VPS on the tailnet. SSH keeps using the VPS's own OpenSSH
+  server (not Tailscale SSH); Tailscale only carries the traffic.
 
-  ```bash
-  sudo tailscale up --advertise-tags=tag:vps
-  ```
+  1. In the Tailscale admin console, apply the access controls from
+     [Tailscale](#tailscale) first: the VPS cannot take the `tag:vps` tag
+     until the policy declares it.
+  2. On the VPS, install Tailscale and join with the tag:
 
-  Check that SSH works over Tailscale before closing port 22 below:
-  `ssh <your user>@<vps>.<tailnet>.ts.net`.
+     ```bash
+     curl -fsSL https://tailscale.com/install.sh | sh
+     sudo tailscale up --advertise-tags=tag:vps
+     ```
+
+     `tailscale up` prints a login URL: open it and sign in as a tailnet
+     admin. If the VPS already joined without the tag, add `--reset` to
+     re-run it with the tag only. A tagged machine belongs to the tailnet,
+     not to a user, and its key does not expire: check that the admin
+     console lists it with the `tag:vps` tag and "Expiry disabled".
+  3. Note the VPS's MagicDNS name, `<vps>.<tailnet>.ts.net`: it is shown in
+     the admin console (Machines) and is the `VPS_HOST` secret.
+  4. On your machine, install Tailscale (<https://tailscale.com/download>)
+     and sign in to the same tailnet. Then check that SSH works over the
+     tailnet before closing port 22 below:
+
+     ```bash
+     tailscale ping <vps>.<tailnet>.ts.net
+     ssh <your user>@<vps>.<tailnet>.ts.net
+     ```
 - [ ] Set up ufw: SSH on the tailnet only. Docker opens Caddy's port 443
   itself: no ufw rule is needed for it.
 
@@ -233,8 +251,9 @@ DNS of `intothefray.xyz`:
 
 ## Tailscale
 
-- In the access controls, declare the tags and let `tag:ci` reach SSH on
-  the VPS (merge into the existing policy):
+- In the access controls, declare the tags and let `tag:ci` and the tailnet
+  admins reach SSH on the VPS (merge into the existing policy; the admin
+  grant is redundant if the policy still allows everything):
 
   ```json
   {
@@ -243,7 +262,8 @@ DNS of `intothefray.xyz`:
       "tag:vps": ["autogroup:admin"]
     },
     "grants": [
-      { "src": ["tag:ci"], "dst": ["tag:vps"], "ip": ["tcp:22"] }
+      { "src": ["tag:ci"], "dst": ["tag:vps"], "ip": ["tcp:22"] },
+      { "src": ["autogroup:admin"], "dst": ["tag:vps"], "ip": ["tcp:22"] }
     ]
   }
   ```
