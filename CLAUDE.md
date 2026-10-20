@@ -15,9 +15,9 @@ make check  # actionlint, shellcheck, compose config, caddy validate
 
 ## Deployment contract
 
-The image, the `deploy-app` / `backend-deployed` dispatches and the Caddy and
-Redis pins are shared with the app repo (see the project memory). Never change
-them without asking the user, and change both repos together.
+The image, the `deploy-app` dispatch and the Caddy and Redis pins are shared
+with the app repo (see the project memory). Never change them without asking
+the user, and change both repos together.
 
 ## Agents
 

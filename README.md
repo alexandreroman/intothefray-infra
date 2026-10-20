@@ -7,17 +7,16 @@ backend: the Go server and its Redis, behind Caddy, on an OVH VPS at
 
 ## Architecture
 
-The app repo publishes an image for each commit on `main`, then asks this
-repo to deploy it. Once the backend answers, this repo tells the app repo,
-which publishes the matching frontend: the backend always goes live before
-the frontend that needs it.
+For each commit on `main`, the app CI publishes the image, publishes the
+frontend, then asks this repo to deploy the image. The frontend may go live a
+few minutes before its backend. This repo sends nothing back to the app repo.
 
 ```mermaid
 graph LR
     CI[App CI] -->|image :sha| GHCR[GHCR]
-    GHCR -->|deploy-app| D[Deploy workflow]
+    CI -->|frontend| Pages[GitHub Pages]
+    CI -->|deploy-app| D[Deploy workflow]
     D -->|Tailscale + SSH| VPS[VPS: Caddy, app, Redis]
-    VPS -->|backend-deployed| P[App Pages workflow]
 ```
 
 On the VPS, only Caddy publishes a port (443). Cloudflare proxies
@@ -62,15 +61,14 @@ It joins the tailnet as `tag:ci`, uploads the stack files and runs
 waits until every service is healthy. The workflow then checks
 `https://api.intothefray.xyz/healthz` through Cloudflare. On any failure it
 runs `deploy.sh rollback`, which restores the previous files and tag, and the
-job fails. After a successful deploy of a given SHA, it sends
-`backend-deployed` to the app repo; an infra-only redeploy sends nothing.
+job fails.
 
 ## Rolling back
 
 Run the `Deploy` workflow by hand (Actions, Deploy, Run workflow) with the
-full SHA of an older app commit. Its image is still on GHCR, the backend
-goes back to it, and the app repo then republishes the frontend of that
-commit. The tag that ran before the current one is in
+full SHA of an older app commit: its image is still on GHCR and the backend
+goes back to it. This rolls back the backend only; the frontend is published
+by the app repo. The tag that ran before the current one is in
 `/opt/intothefray/.env` as `APP_PREVIOUS_TAG`.
 
 ## Reading logs on the VPS
@@ -262,12 +260,6 @@ Secrets of this repository (Settings, Secrets and variables, Actions):
 | `VPS_USER`            | `deploy`                                        |
 | `VPS_SSH_KEY`         | Private key authorized for `deploy`             |
 | `VPS_SSH_KNOWN_HOSTS` | `ssh-keyscan` line(s) of the VPS host key       |
-| `APP_DISPATCH_TOKEN`  | Fine-grained PAT for `intothefray`, see below   |
-
-`APP_DISPATCH_TOKEN` is a fine-grained personal access token limited to
-the `alexandreroman/intothefray` repository, with the Contents permission
-in read and write (needed to send `repository_dispatch`). Without it, a
-deploy succeeds with a warning and the frontend is not republished.
 
 The app repo needs the matching `INFRA_DISPATCH_TOKEN` secret (a
 fine-grained token limited to this repository, Contents in read and

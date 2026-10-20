@@ -28,7 +28,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_REPOSITORY: alexandreroman/intothefray
   HEALTH_URL: https://api.intothefray.xyz/healthz
 
 jobs:
@@ -131,20 +130,3 @@ jobs:
       - name: Roll back
         if: failure() && (steps.deploy.outcome == 'failure' || steps.health.outcome == 'failure')
         run: ssh vps sh /opt/intothefray/incoming/deploy.sh rollback
-
-      # Only after a deploy of a given app commit: an infra-only redeploy
-      # changes nothing the frontend depends on.
-      - name: Tell the app repo the backend is deployed
-        if: steps.target.outputs.sha != ''
-        env:
-          GH_TOKEN: ${{ secrets.APP_DISPATCH_TOKEN }}
-          SHA: ${{ steps.target.outputs.sha }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::APP_DISPATCH_TOKEN is not set: the app repo is not told about this deploy"
-            exit 0
-          fi
-          gh api --silent "repos/$APP_REPOSITORY/dispatches" \
-            -f event_type=backend-deployed \
-            -f "client_payload[sha]=$SHA"
-          echo "Sent backend-deployed for $SHA to $APP_REPOSITORY"
