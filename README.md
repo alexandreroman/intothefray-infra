@@ -369,27 +369,40 @@ once, in the Tailscale admin console.
    ```json
    {
      "tagOwners": {
-       "tag:ci": ["autogroup:admin"],
-       "tag:vps": ["autogroup:admin"]
+       "tag:ci": ["autogroup:owner", "autogroup:admin"],
+       "tag:vps": ["autogroup:owner", "autogroup:admin"]
      },
      "grants": [
+       {
+         "src": ["autogroup:member"],
+         "dst": ["autogroup:self"],
+         "ip": ["*"]
+       },
        { "src": ["tag:ci"], "dst": ["tag:vps"], "ip": ["tcp:22"] },
-       { "src": ["autogroup:admin"], "dst": ["tag:vps"], "ip": ["tcp:22"] }
+       {
+         "src": ["autogroup:owner", "autogroup:admin"],
+         "dst": ["tag:vps"],
+         "ip": ["tcp:22"]
+       }
      ]
    }
    ```
 
-   - `tagOwners` declares the tags and lets tailnet admins apply them: the
-     VPS cannot join with `tag:vps`, nor the OAuth client below use
-     `tag:ci`, until they are declared.
-   - The first grant is the workflow's only access: SSH on the VPS.
-   - The second keeps your own SSH access to the VPS once port 22 is closed
+   - `tagOwners` declares the tags and lets the tailnet owner and admins
+     apply them: the VPS cannot join with `tag:vps`, nor the OAuth client
+     below use `tag:ci`, until they are declared. `autogroup:admin` covers
+     the Admin role only, not the Owner (the creator of a personal tailnet):
+     list both.
+   - The first grant lets each user's own devices reach one another; tagged
+     machines such as the VPS are not part of it.
+   - The second is the workflow's only access: SSH on the VPS.
+   - The third keeps your own SSH access to the VPS once port 22 is closed
      to the Internet.
 
    A new tailnet's policy starts with an allow-all grant
-   (`"src": ["*"], "dst": ["*"], "ip": ["*"]`). While it stays, both grants
-   above are redundant: replace it with narrower grants to confine `tag:ci`
-   to the VPS.
+   (`"src": ["*"], "dst": ["*"], "ip": ["*"]`). Replace it with the grants
+   above, so that CI runs reach SSH on the VPS only and the narrower grants
+   are the ones that apply.
 
 2. **OAuth client.** Open Settings, Trust credentials, and create an OAuth
    client with the Auth Keys scope in write and the tag `tag:ci`. Copy its
