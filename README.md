@@ -219,11 +219,25 @@ hand while setting up the firewall.
      sudo tailscale up --advertise-tags=tag:vps
      ```
 
-     `tailscale up` prints a login URL: open it and sign in as a tailnet
-     admin. If the VPS already joined without the tag, add `--reset` to
-     re-run it with the tag only. A tagged machine belongs to the tailnet,
-     not to a user, and its key does not expire: check that the admin
-     console lists it with the `tag:vps` tag and "Expiry disabled".
+     `tailscale up` prints a login URL: open it and sign in as the tailnet
+     owner or an admin. A tagged machine belongs to the tailnet, not to a
+     user, and its key does not expire. Check it on the VPS:
+
+     ```bash
+     tailscale status --json | jq '.Self.Tags'   # ["tag:vps"]
+     ```
+
+     If the VPS already joined without the tag, re-register it with the
+     tag rather than adding the tag in the admin console, which can leave
+     the machine tagged in the console but not on the VPS itself. This
+     drops the VPS from the tailnet until you open the new login URL, so
+     run it from an SSH session on the public IP or from the OVH KVM
+     console, not over Tailscale:
+
+     ```bash
+     sudo tailscale up --advertise-tags=tag:vps --force-reauth
+     ```
+
   3. Note the VPS's MagicDNS name, `<vps>.<tailnet>.ts.net`: it is shown in
      the admin console (Machines) and is the `VPS_HOST` secret.
   4. On your machine, install Tailscale (<https://tailscale.com/download>;
@@ -233,11 +247,16 @@ hand while setting up the firewall.
      works through it. This is the plain `ssh` command, not `tailscale ssh`:
 
      ```bash
-     tailscale status                    # the VPS is listed, as tagged-devices
+     tailscale status --json |
+       jq '.Peer[] | select(.HostName == "<vps>") | .Tags'  # ["tag:vps"]
      tailscale ping <vps>.<tailnet>.ts.net
      ssh -i ~/.ssh/intothefray-deploy deploy@<vps>.<tailnet>.ts.net true \
        && echo OK
      ```
+
+     If `tailscale ping` answers but SSH times out, the access controls
+     block it: check that the VPS has the tag and that you are covered by
+     the third grant in [Tailscale](#tailscale).
 
 - [ ] Set up ufw: SSH on the tailnet only. Docker opens Caddy's port 443
   itself: no ufw rule is needed for it.
@@ -384,6 +403,9 @@ once, in the Tailscale admin console.
          "dst": ["tag:vps"],
          "ip": ["tcp:22"]
        }
+     ],
+     "tests": [
+       { "src": "tag:ci", "accept": ["tag:vps:22"], "deny": ["tag:vps:443"] }
      ]
    }
    ```
@@ -398,6 +420,9 @@ once, in the Tailscale admin console.
    - The second is the workflow's only access: SSH on the VPS.
    - The third keeps your own SSH access to the VPS once port 22 is closed
      to the Internet.
+   - `tests` makes the console refuse to save a policy that would cut the
+     workflow off from SSH or open it more. Add a test with your own login
+     as `src` and `"accept": ["tag:vps:22"]` to guard your access too.
 
    A new tailnet's policy starts with an allow-all grant
    (`"src": ["*"], "dst": ["*"], "ip": ["*"]`). Replace it with the grants
