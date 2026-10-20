@@ -1,0 +1,12 @@
+# Written on the VPS by the deploy workflow
+.env
+
+# Cloudflare Origin CA certificate and key, installed by hand on the VPS
+certs/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store

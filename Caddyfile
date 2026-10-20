@@ -1,0 +1,26 @@
+{
+	# Unprivileged, stateless container: no admin API, no config autosave
+	admin off
+	persist_config off
+
+	# Only Cloudflare connects, over HTTPS: no port 80 listener for redirects
+	auto_https disable_redirects
+
+	# The Cloudflare Origin CA certificate is only checked by Cloudflare,
+	# which needs no stapled OCSP response
+	ocsp_stapling off
+
+	servers {
+		# Cloudflare reaches origins over TCP: no HTTP/3 (UDP) listener
+		protocols h1 h2
+	}
+}
+
+# 8443 in the container, published as 443 on the VPS (see compose.yaml)
+https://api.intothefray.xyz:8443 {
+	tls /certs/origin.pem /certs/origin-key.pem
+
+	# No encode directive: Cloudflare compresses the responses. The Host
+	# header is forwarded untouched, and WebSocket upgrades pass through.
+	reverse_proxy app:9000
+}

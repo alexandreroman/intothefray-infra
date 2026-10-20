@@ -1,0 +1,150 @@
+name: Deploy
+
+on:
+  # Sent by the app repo once the image of a commit is published
+  repository_dispatch:
+    types: [deploy-app]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: App commit SHA to deploy (40 characters). Empty redeploys the tag running on the VPS.
+        required: false
+        default: ""
+  # A change to the stack itself redeploys the image running on the VPS
+  push:
+    branches: [main]
+    paths:
+      - compose.yaml
+      - Caddyfile
+      - scripts/deploy.sh
+      - .github/workflows/deploy.yml
+
+permissions:
+  contents: read
+
+# One deploy at a time, and a running deploy is never interrupted halfway.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  APP_REPOSITORY: alexandreroman/intothefray
+  HEALTH_URL: https://api.intothefray.xyz/healthz
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The SHA comes from the dispatch payload or the manual input, never
+      # from the shell command line, so it is validated before any use.
+      - name: Resolve the image tag
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCHED_SHA: ${{ github.event.client_payload.sha }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          case "$EVENT_NAME" in
+            repository_dispatch) sha=$DISPATCHED_SHA ;;
+            workflow_dispatch) sha=$INPUT_SHA ;;
+            *) sha="" ;;
+          esac
+
+          if [ -n "$sha" ] && ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}'; then
+            # The value is not echoed: it could carry workflow commands
+            echo "::error::Invalid commit SHA: expected 40 lowercase hexadecimal characters"
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = repository_dispatch ] && [ -z "$sha" ]; then
+            echo "::error::The deploy-app event carries no client_payload.sha"
+            exit 1
+          fi
+
+          if [ -n "$sha" ]; then
+            echo "Deploying app commit $sha"
+          else
+            echo "Redeploying the image tag running on the VPS"
+          fi
+          echo "sha=$sha" >>"$GITHUB_OUTPUT"
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: ${{ secrets.VPS_HOST }}
+
+      - name: Set up SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" >~/.ssh/deploy_key
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
+          cat >~/.ssh/config <<EOF
+          Host vps
+            HostName $VPS_HOST
+            User $VPS_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            BatchMode yes
+            ConnectTimeout 30
+          EOF
+
+      - name: Upload the stack files
+        run: |
+          ssh vps mkdir -p /opt/intothefray/incoming
+          scp -q compose.yaml Caddyfile scripts/deploy.sh vps:/opt/intothefray/incoming/
+
+      - name: Deploy
+        id: deploy
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+        # The SHA is expanded on the runner on purpose: it was validated above.
+        run: |
+          # shellcheck disable=SC2029
+          ssh vps sh /opt/intothefray/incoming/deploy.sh deploy "$SHA"
+
+      # Through Cloudflare, as browsers reach it. The retries cover the
+      # moment Caddy takes to start listening.
+      - name: Check the public health endpoint
+        id: health
+        run: |
+          curl -sS --fail --output /dev/null --max-time 10 \
+            --retry 10 --retry-delay 6 --retry-all-errors \
+            "$HEALTH_URL"
+          echo "$HEALTH_URL answers"
+
+      # The job stays failed: this only brings the last good deployment back.
+      - name: Roll back
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.health.outcome == 'failure')
+        run: ssh vps sh /opt/intothefray/incoming/deploy.sh rollback
+
+      # Only after a deploy of a given app commit: an infra-only redeploy
+      # changes nothing the frontend depends on.
+      - name: Tell the app repo the backend is deployed
+        if: steps.target.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.APP_DISPATCH_TOKEN }}
+          SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::APP_DISPATCH_TOKEN is not set: the app repo is not told about this deploy"
+            exit 0
+          fi
+          gh api --silent "repos/$APP_REPOSITORY/dispatches" \
+            -f event_type=backend-deployed \
+            -f "client_payload[sha]=$SHA"
+          echo "Sent backend-deployed for $SHA to $APP_REPOSITORY"

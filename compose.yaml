@@ -1,0 +1,81 @@
+# Production stack of the Into The Fray backend, run from /opt/intothefray on
+# the VPS. The deploy workflow copies this file there and writes .env next to
+# it (APP_IMAGE_TAG, APP_PREVIOUS_TAG: see .env.example).
+name: intothefray
+
+# Bounded logs: the VPS has a small disk and nothing ships the logs elsewhere.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  caddy:
+    # Same pin as the app repo's compose.yaml
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    # Unprivileged: the Caddyfile disables the admin API and config autosave,
+    # and the certificate is loaded from files, so Caddy writes nothing that
+    # must survive a restart.
+    user: "65534:65534"
+    # An unprivileged process cannot bind a port below 1024, so Caddy listens
+    # on 8443 in the container and Docker maps host port 443 to it. This needs
+    # no added capability (NET_BIND_SERVICE) nor any sysctl change.
+    # IPv4 only: Cloudflare reaches the origin through its A record.
+    ports:
+      - "0.0.0.0:443:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    # The image declares /data and /config as volumes: tmpfs keeps them
+    # writable by the unprivileged user and leaves no anonymous volume behind
+    # on each redeploy.
+    tmpfs:
+      - /data
+      - /config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging: *logging
+
+  app:
+    image: ghcr.io/alexandreroman/intothefray:${APP_IMAGE_TAG:?APP_IMAGE_TAG must be set in .env (see .env.example)}
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_ORIGINS: https://intothefray.xyz
+      # Soft limit on a 2 GB VPS shared with Redis and Caddy
+      GOMEMLIMIT: 256MiB
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Distroless has no shell or curl: the binary probes itself
+      test: ["CMD", "/intothefray", "healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    logging: *logging
+
+  redis:
+    image: redis:8.10-alpine
+    restart: unless-stopped
+    # In memory only: game state is short-lived by design. noeviction makes a
+    # full Redis refuse writes rather than silently drop live games.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    logging: *logging
