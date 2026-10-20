@@ -115,15 +115,43 @@ hand while setting up the firewall.
   sudo usermod -aG docker deploy
   ```
 
-- [ ] Create a key pair for the workflow (on your machine, no passphrase)
-  and authorize it for `deploy`. The `restrict` option denies port
-  forwarding and terminals but still allows the commands and `scp`:
+- [ ] Give the workflow an SSH key for `deploy`. The private key becomes the
+  `VPS_SSH_KEY` secret; the public key goes into `deploy`'s
+  `authorized_keys` on the VPS.
 
-  ```bash
-  ssh-keygen -t ed25519 -N "" -C intothefray-deploy -f intothefray-deploy
-  # On the VPS, as deploy, in ~/.ssh/authorized_keys (mode 600):
-  # restrict ssh-ed25519 AAAA... intothefray-deploy
-  ```
+  1. On your machine, in a directory outside this repository, create the
+     key pair. It has no passphrase, since the workflow cannot type one:
+
+     ```bash
+     ssh-keygen -t ed25519 -N "" -C intothefray-deploy -f intothefray-deploy
+     ```
+
+     This writes the private key `intothefray-deploy` and the public key
+     `intothefray-deploy.pub`.
+
+  2. Authorize the public key for `deploy`. That user has no password, so go
+     through your own account and `sudo`. The `restrict` prefix denies
+     terminals and port forwarding but still allows the commands and `scp`
+     the workflow runs:
+
+     ```bash
+     printf 'restrict %s\n' "$(cat intothefray-deploy.pub)" |
+       ssh <your user>@<vps public IP> \
+         'sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh &&
+          sudo tee /home/deploy/.ssh/authorized_keys >/dev/null &&
+          sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys &&
+          sudo chmod 600 /home/deploy/.ssh/authorized_keys'
+     ```
+
+  3. Check the key, store the private key as a secret, then delete both
+     files (or keep the private key in a password manager):
+
+     ```bash
+     ssh -i intothefray-deploy deploy@<vps public IP> true && echo OK
+     gh secret set VPS_SSH_KEY -R alexandreroman/intothefray-infra \
+       <intothefray-deploy
+     rm intothefray-deploy intothefray-deploy.pub
+     ```
 
 - [ ] Add a 2 GB swap file:
 
@@ -145,8 +173,8 @@ hand while setting up the firewall.
   sudo tailscale up --advertise-tags=tag:vps
   ```
 
-  Check that `ssh deploy@<vps>.<tailnet>.ts.net` works over Tailscale
-  before closing port 22 below.
+  Check that SSH works over Tailscale before closing port 22 below:
+  `ssh <your user>@<vps>.<tailnet>.ts.net`.
 - [ ] Set up ufw: SSH on the tailnet only. Docker opens Caddy's port 443
   itself: no ufw rule is needed for it.
 
