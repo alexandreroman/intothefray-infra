@@ -357,27 +357,63 @@ DNS of `intothefray.xyz`:
 
 ## Tailscale
 
-- In the access controls, declare the tags and let `tag:ci` and the tailnet
-  admins reach SSH on the VPS (merge into the existing policy; the admin
-  grant is redundant if the policy still allows everything):
+The workflow reaches the VPS only through the tailnet: each run joins it as
+a short-lived machine tagged `tag:ci`, and the policy lets that tag reach
+SSH on the machine tagged `tag:vps`, nothing else. Everything below is done
+once, in the Tailscale admin console.
 
-  ```json
-  {
-    "tagOwners": {
-      "tag:ci": ["autogroup:admin"],
-      "tag:vps": ["autogroup:admin"]
-    },
-    "grants": [
-      { "src": ["tag:ci"], "dst": ["tag:vps"], "ip": ["tcp:22"] },
-      { "src": ["autogroup:admin"], "dst": ["tag:vps"], "ip": ["tcp:22"] }
-    ]
-  }
-  ```
+1. **Access controls.** Open Access controls, then the JSON editor, and
+   merge this into the policy (add the keys to the existing `tagOwners` and
+   `grants` rather than replacing them):
 
-- Create an OAuth client (Settings, Trust credentials) with the
-  `auth_keys` write scope and the tag `tag:ci`. The workflow uses it to
-  join as an ephemeral node, removed when the job ends.
-- Enable MagicDNS: `VPS_HOST` is the VPS's MagicDNS name.
+   ```json
+   {
+     "tagOwners": {
+       "tag:ci": ["autogroup:admin"],
+       "tag:vps": ["autogroup:admin"]
+     },
+     "grants": [
+       { "src": ["tag:ci"], "dst": ["tag:vps"], "ip": ["tcp:22"] },
+       { "src": ["autogroup:admin"], "dst": ["tag:vps"], "ip": ["tcp:22"] }
+     ]
+   }
+   ```
+
+   - `tagOwners` declares the tags and lets tailnet admins apply them: the
+     VPS cannot join with `tag:vps`, nor the OAuth client below use
+     `tag:ci`, until they are declared.
+   - The first grant is the workflow's only access: SSH on the VPS.
+   - The second keeps your own SSH access to the VPS once port 22 is closed
+     to the Internet.
+
+   A new tailnet's policy starts with an allow-all grant
+   (`"src": ["*"], "dst": ["*"], "ip": ["*"]`). While it stays, both grants
+   above are redundant: replace it with narrower grants to confine `tag:ci`
+   to the VPS.
+
+2. **OAuth client.** Open Settings, Trust credentials, and create an OAuth
+   client with the Auth Keys scope in write and the tag `tag:ci`. Copy its
+   ID and secret (the secret is shown only once) into the repository
+   secrets:
+
+   ```bash
+   gh secret set TS_OAUTH_CLIENT_ID -R alexandreroman/intothefray-infra
+   gh secret set TS_OAUTH_SECRET -R alexandreroman/intothefray-infra
+   ```
+
+   Each prompts for the value. On every run, `tailscale/github-action` uses
+   the client to create an auth key for an ephemeral machine
+   tagged `tag:ci`; Tailscale removes that machine once the job ends. Unlike
+   an auth key, which expires after 90 days at most, the OAuth client does
+   not expire.
+
+3. **MagicDNS.** Check on the DNS page that MagicDNS is on (the default on
+   recent tailnets). The page also shows the tailnet name: the VPS's
+   MagicDNS name, `<vps>.<tailnet>.ts.net`, is the `VPS_HOST` secret, and
+   the workflow pings it right after joining.
+
+During a deploy, the Machines page lists the runner as an ephemeral
+machine tagged `tag:ci`; it disappears after the job.
 
 ## GitHub
 
