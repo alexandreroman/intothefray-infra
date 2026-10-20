@@ -301,16 +301,43 @@ hand while setting up the firewall.
   reminder before the expiry date. If the key leaks, revoke the certificate
   in SSL/TLS, Origin Server, and create a new one.
 
-- [ ] Record the SSH host key for the workflow, from a machine on the
-  tailnet, and check its fingerprint against
-  `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VPS:
+- [ ] Record the VPS's SSH host key for the workflow. The runner starts
+  fresh on every run, so it cannot accept the key on first use: it connects
+  with `StrictHostKeyChecking yes` and trusts only the keys in the
+  `VPS_SSH_KNOWN_HOSTS` secret. That way, nothing but the VPS can receive
+  the deploy key.
 
-  ```bash
-  ssh-keyscan -t ed25519 <vps>.<tailnet>.ts.net
-  ```
+  1. On the VPS, read the fingerprint of its ED25519 host key:
 
-  Its output is the `VPS_SSH_KNOWN_HOSTS` secret. The host name in it must
-  be exactly `VPS_HOST`.
+     ```bash
+     ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+     ```
+
+  2. On your machine, on the tailnet, fetch the key under the exact name
+     the workflow connects to, the MagicDNS name of `VPS_HOST`, then print
+     its fingerprint. It must match the one from step 1:
+
+     ```bash
+     ssh-keyscan -t ed25519 <vps>.<tailnet>.ts.net 2>/dev/null \
+       >vps-known-hosts
+     ssh-keygen -lf vps-known-hosts
+     ```
+
+     The file holds one line, `<vps>.<tailnet>.ts.net ssh-ed25519 AAAA...`.
+     SSH looks the key up by that name, so it must be exactly `VPS_HOST`.
+
+  3. Store the line and the name as secrets, then delete the file:
+
+     ```bash
+     gh secret set VPS_SSH_KNOWN_HOSTS -R alexandreroman/intothefray-infra \
+       <vps-known-hosts
+     gh secret set VPS_HOST -R alexandreroman/intothefray-infra \
+       --body '<vps>.<tailnet>.ts.net'
+     rm vps-known-hosts
+     ```
+
+  Redo this step when the VPS is reinstalled or renamed in the tailnet: the
+  workflow then fails with "Host key verification failed".
 
 ## Cloudflare
 
