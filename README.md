@@ -372,7 +372,12 @@ DNS of `intothefray.xyz`:
 - `api` is proxied: it hides the VPS, compresses the responses and carries
   the WebSockets. It needs no AAAA record: Cloudflare reaches the origin over
   IPv4.
-- SSL/TLS encryption mode: Full (strict). WebSockets on (the default).
+- SSL/TLS encryption mode: Full (strict), minimum TLS version 1.2, Always
+  Use HTTPS on. These zone settings only apply to proxied records, so not
+  to the apex.
+- WebSockets, HTTP/3, TLS 1.3 and Brotli on (the defaults). Cloudflare
+  compresses the JSON responses itself; the WebSocket traffic, which
+  carries most of a game, passes through as is.
 
 ## Tailscale
 
