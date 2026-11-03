@@ -16,6 +16,7 @@ on:
     paths:
       - compose.yaml
       - Caddyfile
+      - origin-pull-ca.pem
       - scripts/deploy.sh
       - .github/workflows/deploy.yml
 
@@ -137,7 +138,7 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         run: |
           ssh vps mkdir -p /opt/intothefray/incoming
-          scp -q compose.yaml Caddyfile scripts/deploy.sh vps:/opt/intothefray/incoming/
+          scp -q compose.yaml Caddyfile origin-pull-ca.pem scripts/deploy.sh vps:/opt/intothefray/incoming/
 
       - name: Deploy
         id: deploy

@@ -18,7 +18,14 @@
 
 # 8443 in the container, published as 443 on the VPS (see compose.yaml)
 https://api.intothefray.xyz:8443 {
-	tls /certs/origin.pem /certs/origin-key.pem
+	tls /certs/origin.pem /certs/origin-key.pem {
+		# Authenticated Origin Pulls: Caddy accepts only connections that
+		# present Cloudflare's client certificate, signed by origin-pull-ca.pem.
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/caddy/origin-pull-ca.pem
+		}
+	}
 
 	# No encode directive: Cloudflare compresses the responses. The Host
 	# header is forwarded untouched, and WebSocket upgrades pass through.

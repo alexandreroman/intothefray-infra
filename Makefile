@@ -30,7 +30,7 @@ check-compose: ## Validate compose.yaml
 	APP_IMAGE_TAG=$(DUMMY_TAG) docker compose config --quiet
 
 .PHONY: check-caddy
-check-caddy: ## Validate the Caddyfile with throwaway certificates
+check-caddy: ## Validate the Caddyfile (throwaway certificates, real AOP CA)
 	@certs=$$(mktemp -d); trap 'rm -rf "$$certs"' EXIT; \
 		openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
 			-subj /CN=api.intothefray.xyz -days 30 \
@@ -38,6 +38,7 @@ check-caddy: ## Validate the Caddyfile with throwaway certificates
 		chmod 644 "$$certs"/*.pem && \
 		docker run --rm --quiet \
 			-v "$(CURDIR)/Caddyfile:/etc/caddy/Caddyfile:ro" \
+			-v "$(CURDIR)/origin-pull-ca.pem:/etc/caddy/origin-pull-ca.pem:ro" \
 			-v "$$certs:/certs:ro" \
 			$(CADDY_IMAGE) caddy validate --config /etc/caddy/Caddyfile
 
