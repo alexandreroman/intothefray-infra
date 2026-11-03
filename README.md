@@ -22,12 +22,16 @@ graph LR
 On the VPS, only Caddy publishes a port (443). Cloudflare proxies
 `api.intothefray.xyz` to it over TLS (Full (strict), Cloudflare Origin CA
 certificate), and Caddy forwards everything, WebSockets included, to the app
-on `app:9000`. Redis keeps the games in memory only.
+on `app:9000`. Caddy only accepts connections that present Cloudflare's
+[Authenticated Origin Pulls](#authenticated-origin-pulls) client certificate,
+so requests reach the API through Cloudflare. Redis keeps the games in memory
+only.
 
 | File                           | Purpose                                   |
 | ------------------------------ | ----------------------------------------- |
 | `compose.yaml`                 | Production stack: caddy, app, redis       |
-| `Caddyfile`                    | TLS with the origin certificate, proxy    |
+| `Caddyfile`                    | TLS, Cloudflare client certificate, proxy |
+| `origin-pull-ca.pem`           | CA of Cloudflare's client certificate     |
 | `scripts/deploy.sh`            | Runs on the VPS: deploy and rollback      |
 | `.github/workflows/deploy.yml` | Deploy workflow                           |
 | `.env.example`                 | The `.env` the workflow writes on the VPS |
@@ -53,12 +57,13 @@ triggered by:
 - a manual run (`workflow_dispatch`), with an optional `sha` input: deploys
   that image, or redeploys the tag running on the VPS when empty;
 - a push to `main` that changes the stack (`compose.yaml`, `Caddyfile`,
-  `scripts/deploy.sh` or the workflow): redeploys the running tag with the
-  new files.
+  `origin-pull-ca.pem`, `scripts/deploy.sh` or the workflow): redeploys the
+  running tag with the new files.
 
 It joins the tailnet as `tag:ci`, uploads the stack files and runs
-`deploy.sh deploy [sha]` over SSH, which installs them, pulls the images and
-waits until every service is healthy. The workflow then checks
+`deploy.sh deploy [sha]` over SSH, which installs them, pulls the images,
+restarts Caddy when the Caddyfile or the CA changed, and waits until every
+service is healthy. The workflow then checks
 `https://api.intothefray.xyz/healthz` through Cloudflare. On any failure it
 runs `deploy.sh rollback`, which restores the previous files and tag, and the
 job fails.
@@ -109,7 +114,8 @@ really deploys:
 ```bash
 dir=/opt/intothefray/incoming
 ssh itf-vps mkdir -p "$dir"
-scp -q compose.yaml Caddyfile scripts/deploy.sh "itf-vps:$dir/"
+scp -q compose.yaml Caddyfile origin-pull-ca.pem scripts/deploy.sh \
+  "itf-vps:$dir/"
 ssh itf-vps sh "$dir/deploy.sh" deploy <sha>  # no SHA: redeploy the tag
 curl -sS --fail -o /dev/null https://api.intothefray.xyz/healthz && echo OK
 ssh itf-vps sh "$dir/deploy.sh" rollback      # only if a step failed
@@ -378,6 +384,72 @@ DNS of `intothefray.xyz`:
 - WebSockets, HTTP/3, TLS 1.3 and Brotli on (the defaults). Cloudflare
   compresses the JSON responses itself; the WebSocket traffic, which
   carries most of a game, passes through as is.
+- Authenticated Origin Pulls on, global certificate: see below.
+
+### Authenticated Origin Pulls
+
+Caddy requires the client certificate Cloudflare presents with Authenticated
+Origin Pulls (AOP), and checks it against `origin-pull-ca.pem`, Cloudflare's
+public CA, committed and shipped with the stack. Requests to the API therefore
+always go through Cloudflare, with its DDoS protection, WAF and rate limits.
+
+This uses Cloudflare's global AOP certificate, turned on with a single zone
+setting.
+
+Turn AOP on before deploying a Caddyfile that requires it, or the API goes
+down:
+
+1. Turn it on. In the dashboard: `intothefray.xyz`, SSL/TLS, Origin Server,
+   Authenticated Origin Pulls tab, Global: On. Or with the API: first export
+   `CLOUDFLARE_ZONE_ID`, the zone ID, and `CLOUDFLARE_API_TOKEN`, an API
+   token scoped to the zone with Zone Settings Edit. This is harmless on its
+   own: Cloudflare only sends its certificate when the origin asks for one.
+
+   ```bash
+   zone=https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID
+   curl -sS -X PATCH "$zone/settings/tls_client_auth" \
+     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+     -H "Content-Type: application/json" --data '{"value":"on"}'
+   ```
+
+2. Check that the setting reads `on`:
+
+   ```bash
+   curl -sS "$zone/settings/tls_client_auth" \
+     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r .result.value
+   ```
+
+3. Push the Caddyfile change: the workflow deploys it.
+
+If AOP is off, Cloudflare fails the handshake with the origin and answers
+with an error such as 525 (SSL handshake failed); the workflow's health check
+through Cloudflare catches it and rolls back. Never turn AOP off while Caddy
+requires it.
+
+To check it, a direct request to the origin must fail, while the same request
+through Cloudflare answers. `--insecure` skips the check of the Origin CA
+certificate, which is not publicly trusted, so that the missing client
+certificate is what fails, with an error such as "alert certificate
+required":
+
+```bash
+curl -sS --insecure --resolve api.intothefray.xyz:443:<vps public IP> \
+  https://api.intothefray.xyz/healthz                # fails
+curl -sS --fail https://api.intothefray.xyz/healthz  # answers
+```
+
+Cloudflare's CA expires on 2029-11-01. When Cloudflare publishes a new one at
+<https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem>,
+replace `origin-pull-ca.pem`, check its fingerprint and expiry date, and
+push: a deploy restarts Caddy whenever the Caddyfile or the CA changes, so
+the push is all a rotation needs.
+
+```bash
+openssl x509 -in origin-pull-ca.pem -noout -fingerprint -sha256 -enddate
+```
+
+During a rotation, Caddy can trust both CAs: `trust_pool file` takes several
+files (ship and mount the second one like the first).
 
 ## Tailscale
 

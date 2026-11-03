@@ -27,6 +27,8 @@ services:
       - "0.0.0.0:443:8443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Public CA of Cloudflare's client certificate, shipped by the workflow
+      - ./origin-pull-ca.pem:/etc/caddy/origin-pull-ca.pem:ro
       - ./certs:/certs:ro
     # The image declares /data and /config as volumes: tmpfs keeps them
     # writable by the unprivileged user and leaves no anonymous volume behind

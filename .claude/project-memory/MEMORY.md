@@ -26,4 +26,5 @@
 - [Makefile scope](references/project_makefile_scope.md) — checks only
 - [No local paths](references/feedback_no_local_paths.md) — URLs only
 - [Open HTTPS port](references/project_open_https_port.md) — no IP filter
+- [Authenticated Origin Pulls](references/project_origin_pulls.md) — global AOP, CA to 2029
 - [Cloudflare API](references/reference_cloudflare_api.md) — token in .env
