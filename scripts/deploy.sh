@@ -1,5 +1,5 @@
 #!/bin/sh
-# Deploys or rolls back the Into The Fray stack on the VPS. The deploy
+# Deploys or rolls back the Into the Fray stack on the VPS. The deploy
 # workflow copies this script, compose.yaml, the Caddyfile and
 # origin-pull-ca.pem to /opt/intothefray/incoming/, then runs it over SSH as
 # the deploy user.

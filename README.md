@@ -1,6 +1,6 @@
-# Into The Fray - Infrastructure
+# Into the Fray - Infrastructure
 
-Deployment of the [Into The Fray](https://github.com/alexandreroman/intothefray)
+Deployment of the [Into the Fray](https://github.com/alexandreroman/intothefray)
 backend: the Go server and its Redis, behind Caddy, on an OVH VPS at
 <https://api.intothefray.xyz>. The frontend is published to GitHub Pages at
 <https://intothefray.xyz> by the app repo.
