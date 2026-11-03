@@ -1,4 +1,4 @@
-# Production stack of the Into The Fray backend, run from /opt/intothefray on
+# Production stack of the Into the Fray backend, run from /opt/intothefray on
 # the VPS. The deploy workflow copies this file there and writes .env next to
 # it (APP_IMAGE_TAG, APP_PREVIOUS_TAG: see .env.example).
 name: intothefray
